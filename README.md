@@ -6,7 +6,7 @@ This is a full-stack Employee Management System built using Java Spring Boot for
 
 ## Features
 
-- **Employee CRUD Operations:** Create, Read, Update, and Delete employee records.
+- **Employee CRUD Operations:** Create, Read, Update, and Delete employee records.  
 - **User Authentication:** Secure login and user management.
 - **RESTful API:** Backend services exposed via RESTful APIs.
 - **Responsive UI:** User-friendly interface with React.js.
