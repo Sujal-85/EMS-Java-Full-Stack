@@ -1,68 +1,134 @@
 package net.javaguides.spring.boot.controller;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
+import net.javaguides.spring.boot.dto.EmployeeResponse;
+import net.javaguides.spring.boot.entity.Department;
+import net.javaguides.spring.boot.model.Employee;
+import net.javaguides.spring.boot.service.EmployeeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
-import net.javaguides.spring.boot.model.Employee;
-import net.javaguides.spring.boot.repository.EmployeeRepository;
-import net.javaguides.springboot.exception.ResourceNotFoundException;
+import java.util.List;
+import java.util.stream.Collectors;
 
-@CrossOrigin(origins = "http://localhost:5173")
 @RestController
-@RequestMapping("/api/v1")
+@RequestMapping("/api/employees")
 public class EmployeeController {
-	@Autowired
-	private EmployeeRepository employeeRepository;
-	
-	@GetMapping("/employees")
-	
-	public List<Employee> getAllEmployees(){
-		return employeeRepository.findAll(); 
-	}
-	@PostMapping("/employees")
-	public Employee createEmployee(@RequestBody Employee employee) {
-		return employeeRepository.save(employee);
-	}
-	@GetMapping("/employees/{id}")
-	public ResponseEntity<Employee> getEmployeeById(@PathVariable Long id) {
-		Employee employee = employeeRepository.findById(id)
-				.orElseThrow(() -> new ResourceNotFoundException("Employee not exist with id :" + id));
-		return ResponseEntity.ok(employee);
-	}
-	@PutMapping("/employees/{id}")
-	public ResponseEntity<Employee> updateEmployee(@PathVariable Long id, @RequestBody Employee employeeDetails){
-		Employee employee = employeeRepository.findById(id)
-				.orElseThrow(() -> new ResourceNotFoundException("Employee not exist with id :" + id));
-		
-		employee.setFirstName(employeeDetails.getFirstName());
-		employee.setLastName(employeeDetails.getLastName());
-		employee.setEmailId(employeeDetails.getEmailId());
-		
-		Employee updatedEmployee = employeeRepository.save(employee);
-		return ResponseEntity.ok(updatedEmployee);
-	}
-	@DeleteMapping("/employees/{id}")
-	public ResponseEntity<Map<String, Boolean>> deleteEmployee(@PathVariable Long id){
-		Employee employee = employeeRepository.findById(id)
-				.orElseThrow(() -> new ResourceNotFoundException("Employee not exist with id :" + id));
-		
-		employeeRepository.delete(employee);
-		Map<String, Boolean> response = new HashMap<>();
-		response.put("deleted", Boolean.TRUE);
-		return ResponseEntity.ok(response);
-	}
-	
+    
+    @Autowired
+    private EmployeeService employeeService;
+    
+    @Autowired
+    private ObjectMapper objectMapper;
+    
+    @GetMapping
+    public ResponseEntity<List<EmployeeResponse>> getAllEmployees() {
+        List<EmployeeResponse> list = employeeService.getAllEmployees().stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(list);
+    }
+    
+    @GetMapping("/{id}")
+    public ResponseEntity<EmployeeResponse> getEmployeeById(@PathVariable Long id) {
+        return ResponseEntity.ok(toResponse(employeeService.getEmployeeById(id)));
+    }
+    
+    @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'HR')")
+    public ResponseEntity<EmployeeResponse> createEmployee(
+            @RequestPart("employee") String employeeJson,
+            @RequestPart(value = "photo", required = false) MultipartFile photo,
+            Authentication authentication,
+            HttpServletRequest request) {
+        try {
+            Employee employee = objectMapper.readValue(employeeJson, Employee.class);
+            String performedBy = authentication.getName();
+            String ipAddress = request.getRemoteAddr();
+            Employee created = employeeService.createEmployee(employee, photo, performedBy, ipAddress);
+            return ResponseEntity.ok(toResponse(created));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse employee data: " + e.getMessage());
+        }
+    }
+    
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'HR')")
+    public ResponseEntity<EmployeeResponse> updateEmployee(
+            @PathVariable Long id,
+            @RequestPart("employee") String employeeJson,
+            @RequestPart(value = "photo", required = false) MultipartFile photo,
+            Authentication authentication,
+            HttpServletRequest request) {
+        try {
+            Employee employee = objectMapper.readValue(employeeJson, Employee.class);
+            String performedBy = authentication.getName();
+            String ipAddress = request.getRemoteAddr();
+            Employee updated = employeeService.updateEmployee(id, employee, photo, performedBy, ipAddress);
+            return ResponseEntity.ok(toResponse(updated));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse employee data: " + e.getMessage());
+        }
+    }
+    
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<String> deleteEmployee(
+            @PathVariable Long id,
+            Authentication authentication,
+            HttpServletRequest request) {
+        String performedBy = authentication.getName();
+        String ipAddress = request.getRemoteAddr();
+        employeeService.deleteEmployee(id, performedBy, ipAddress);
+        return ResponseEntity.ok("Employee deleted successfully");
+    }
+    
+    @GetMapping("/search")
+    public ResponseEntity<List<EmployeeResponse>> searchEmployees(@RequestParam String query) {
+        List<EmployeeResponse> list = employeeService.searchEmployees(query).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(list);
+    }
+    
+    @GetMapping("/department/{departmentId}")
+    public ResponseEntity<List<EmployeeResponse>> getEmployeesByDepartment(@PathVariable Long departmentId) {
+        List<EmployeeResponse> list = employeeService.getEmployeesByDepartment(departmentId).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(list);
+    }
+    
+    @GetMapping("/status/{status}")
+    public ResponseEntity<List<EmployeeResponse>> getEmployeesByStatus(@PathVariable Employee.Status status) {
+        List<EmployeeResponse> list = employeeService.getEmployeesByStatus(status).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(list);
+    }
+
+    private EmployeeResponse toResponse(Employee e) {
+        EmployeeResponse.DepartmentInfo dept = null;
+        Department d = e.getDepartment();
+        if (d != null) {
+            dept = new EmployeeResponse.DepartmentInfo(d.getId(), d.getName());
+        }
+        return new EmployeeResponse(
+                e.getId(),
+                e.getEmployeeCode(),
+                e.getFirstName(),
+                e.getLastName(),
+                e.getEmail(),
+                e.getPhoneNumber(),
+                e.getDesignation(),
+                e.getStatus() != null ? e.getStatus().name() : null,
+                dept,
+                e.getPhotoUrl()
+        );
+    }
 }
